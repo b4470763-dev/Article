@@ -89,12 +89,103 @@
         .top-actions {
             position: fixed;
             top: 17px;
-            left: 24px;
+            left: 24px !important;
+            right: auto !important;
             display: flex;
             align-items: center;
             gap: 12px;
+            direction: ltr;
             z-index: 50;
             animation: shellControlIn 0.55s cubic-bezier(.2, .8, .2, 1) both;
+        }
+
+        /* Circular theme reveal; animation geometry is driven from the theme button. */
+        @supports selector(::view-transition-old(root)) {
+            html[data-theme-transition] *,
+            html[data-theme-transition] *::before,
+            html[data-theme-transition] *::after {
+                transition: none !important;
+            }
+
+            /* Preserve the original sun/moon rotation while the page reveal runs. */
+            html[data-theme-transition] .theme-switch svg {
+                transition:
+                    transform 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                    opacity 0.5s ease !important;
+            }
+
+            .icon-sun { view-transition-name: theme-sun; }
+            .icon-moon { view-transition-name: theme-moon; }
+
+            ::view-transition-group(theme-sun),
+            ::view-transition-group(theme-moon) {
+                z-index: 2147483647;
+                animation: none;
+            }
+
+            ::view-transition-image-pair(theme-sun),
+            ::view-transition-image-pair(theme-moon) {
+                overflow: visible;
+            }
+
+            ::view-transition-old(theme-sun),
+            ::view-transition-new(theme-sun),
+            ::view-transition-old(theme-moon),
+            ::view-transition-new(theme-moon) {
+                mix-blend-mode: normal;
+                transform-origin: center;
+            }
+
+            html[data-theme-transition="to-dark"]::view-transition-old(theme-sun) {
+                animation: themeIconOutClockwise 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+            }
+            html[data-theme-transition="to-dark"]::view-transition-new(theme-moon) {
+                animation: themeIconInClockwise 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+            }
+            html[data-theme-transition="to-dark"]::view-transition-old(theme-moon),
+            html[data-theme-transition="to-dark"]::view-transition-new(theme-sun) {
+                opacity: 0;
+            }
+
+            html[data-theme-transition="to-light"]::view-transition-old(theme-moon) {
+                animation: themeIconOutCounterClockwise 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+            }
+            html[data-theme-transition="to-light"]::view-transition-new(theme-sun) {
+                animation: themeIconInCounterClockwise 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+            }
+            html[data-theme-transition="to-light"]::view-transition-old(theme-sun),
+            html[data-theme-transition="to-light"]::view-transition-new(theme-moon) {
+                opacity: 0;
+            }
+
+            @keyframes themeIconOutClockwise {
+                from { opacity: 1; transform: rotate(0deg) scale(1); }
+                to { opacity: 0; transform: rotate(90deg) scale(0); }
+            }
+            @keyframes themeIconInClockwise {
+                from { opacity: 0; transform: rotate(-90deg) scale(0); }
+                to { opacity: 1; transform: rotate(0deg) scale(1); }
+            }
+            @keyframes themeIconOutCounterClockwise {
+                from { opacity: 1; transform: rotate(0deg) scale(1); }
+                to { opacity: 0; transform: rotate(-90deg) scale(0); }
+            }
+            @keyframes themeIconInCounterClockwise {
+                from { opacity: 0; transform: rotate(90deg) scale(0); }
+                to { opacity: 1; transform: rotate(0deg) scale(1); }
+            }
+
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+                animation: none;
+                mix-blend-mode: normal;
+            }
+
+            ::view-transition-old(root) { z-index: 1; }
+            ::view-transition-new(root) { z-index: 2; }
+
+            html[data-theme-transition="to-light"]::view-transition-old(root) { z-index: 2; }
+            html[data-theme-transition="to-light"]::view-transition-new(root) { z-index: 1; }
         }
 
         
@@ -582,16 +673,92 @@
             } catch(e) {}
         }
 
-        themeToggle.addEventListener('click', () => {
-            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        function syncPdiskRangeProgress() {
+            try {
+                const rangeInputs = viewer.contentWindow.document.querySelectorAll('.controls input[type="range"]');
+                rangeInputs.forEach((input) => {
+                    const updateProgress = () => {
+                        const min = Number(input.min || 0);
+                        const max = Number(input.max || 100);
+                        const value = Number(input.value);
+                        const progress = max === min ? 0 : ((value - min) / (max - min)) * 100;
+                        input.style.setProperty('--range-progress', `${Math.max(0, Math.min(100, progress))}%`);
+                    };
+                    updateProgress();
+                    if (input.dataset.progressSyncReady !== '1') {
+                        input.dataset.progressSyncReady = '1';
+                        input.addEventListener('input', updateProgress);
+                        input.addEventListener('change', updateProgress);
+                    }
+                });
+            } catch(e) {}
+        }
+
+        let themeTransitionRunning = false;
+
+        function applyTheme(isDark) {
             if (isDark) {
-                document.documentElement.removeAttribute('data-theme');
-                localStorage.setItem('theme', 'light');
-            } else {
                 document.documentElement.setAttribute('data-theme', 'dark');
                 localStorage.setItem('theme', 'dark');
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'light');
             }
             syncViewerTheme();
+        }
+
+        themeToggle.addEventListener('click', async () => {
+            if (themeTransitionRunning) return;
+
+            const goingToDark = document.documentElement.getAttribute('data-theme') !== 'dark';
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (!document.startViewTransition || reduceMotion) {
+                applyTheme(goingToDark);
+                return;
+            }
+
+            themeTransitionRunning = true;
+            document.documentElement.setAttribute(
+                'data-theme-transition',
+                goingToDark ? 'to-dark' : 'to-light'
+            );
+
+            const buttonRect = themeToggle.getBoundingClientRect();
+            const originX = buttonRect.left + buttonRect.width / 2;
+            const originY = buttonRect.top + buttonRect.height / 2;
+            const endRadius = Math.hypot(
+                Math.max(originX, window.innerWidth - originX),
+                Math.max(originY, window.innerHeight - originY)
+            );
+
+            const transition = document.startViewTransition(() => applyTheme(goingToDark));
+
+            try {
+                await transition.ready;
+                const clipPath = goingToDark
+                    ? [`circle(0px at ${originX}px ${originY}px)`, `circle(${endRadius}px at ${originX}px ${originY}px)`]
+                    : [`circle(${endRadius}px at ${originX}px ${originY}px)`, `circle(0px at ${originX}px ${originY}px)`];
+
+                document.documentElement.animate(
+                    { clipPath },
+                    {
+                        duration: goingToDark ? 760 : 680,
+                        easing: goingToDark
+                            ? 'cubic-bezier(0.22, 1, 0.36, 1)'
+                            : 'cubic-bezier(0.4, 0, 0.2, 1)',
+                        fill: 'both',
+                        pseudoElement: goingToDark
+                            ? '::view-transition-new(root)'
+                            : '::view-transition-old(root)'
+                    }
+                );
+                await transition.finished;
+            } catch (error) {
+                // If the browser cancels a snapshot, the selected theme still remains applied.
+            } finally {
+                document.documentElement.removeAttribute('data-theme-transition');
+                themeTransitionRunning = false;
+            }
         });
 
         const portalData = JSON.parse(document.getElementById('portal-data').textContent);
@@ -633,6 +800,55 @@
             window.setTimeout(() => {
                 if (token !== viewerRenderToken) return;
 
+                if (state.section === 'articles') {
+                    const articleDarkPalettes = {
+                        escape: { accent: '#2dd4bf', secondary: '#fbbf24', glow: 'rgba(45, 212, 191, 0.18)' },
+                        popper: { accent: '#fb923c', secondary: '#2dd4bf', glow: 'rgba(251, 146, 60, 0.18)' }
+                    };
+                    const palette = articleDarkPalettes[state.item];
+                    if (palette) {
+                        const articleDarkIdentity = `<style id="article-dark-identity">
+                            html[data-theme="dark"] {
+                                --portal-accent: ${palette.accent} !important;
+                                --portal-accent-2: ${palette.secondary} !important;
+                            }
+                            html[data-theme="dark"] h2,
+                            html[data-theme="dark"] .math-box,
+                            html[data-theme="dark"] .math-inline,
+                            html[data-theme="dark"] .author-credit {
+                                color: ${palette.accent} !important;
+                            }
+                            html[data-theme="dark"] h2 {
+                                border-bottom-color: color-mix(in srgb, ${palette.accent} 32%, #334155) !important;
+                            }
+                            html[data-theme="dark"] .abstract {
+                                border-inline-start: 5px solid ${palette.accent} !important;
+                                border-inline-end-color: ${palette.accent} !important;
+                                box-shadow: 0 4px 18px ${palette.glow} !important;
+                            }
+                            html[data-theme="dark"] .math-box,
+                            html[data-theme="dark"] .svg-container {
+                                border-color: color-mix(in srgb, ${palette.accent} 24%, #334155) !important;
+                            }
+                        </style>`;
+                        documentSource = documentSource.replace('</head>', `${articleDarkIdentity}</head>`);
+
+                        if (state.item === 'popper') {
+                            const popperConfirmabilityText = `<style id="popper-confirmability-text">
+                                html[data-theme="dark"] h2:nth-of-type(2) + p + p + ol,
+                                html[data-theme="dark"] h2:nth-of-type(2) + p + p + ol li,
+                                html[data-theme="dark"] h2:nth-of-type(2) + p + p + ol strong,
+                                html[data-theme="dark"] h2:nth-of-type(4) + p + p + ul,
+                                html[data-theme="dark"] h2:nth-of-type(4) + p + p + ul li,
+                                html[data-theme="dark"] h2:nth-of-type(4) + p + p + ul strong {
+                                    color: #e2e8f0 !important;
+                                }
+                            </style>`;
+                            documentSource = documentSource.replace('</head>', `${popperConfirmabilityText}</head>`);
+                        }
+                    }
+                }
+
                 if (state.item === 'pdisk') {
                     const pdiskSideStripes = `<style id="pdisk-synced-side-stripes">
                         /* Keep the colored side accents visible in both themes. */
@@ -650,6 +866,63 @@
                         }
                         body > .mobile-formula-card {
                             border-left: 4px solid #38bdf8 !important;
+                        }
+                        html[data-theme="dark"] .controls input[type="range"] {
+                            appearance: none !important;
+                            -webkit-appearance: none !important;
+                            background: transparent !important;
+                            accent-color: #2dd4bf !important;
+                            color-scheme: dark;
+                            --range-direction: to right;
+                            --range-progress: 0%;
+                        }
+                        html[data-theme="dark"][dir="rtl"] .controls input[type="range"] {
+                            --range-direction: to left;
+                        }
+                        html[data-theme="dark"] .controls input[type="range"]::-webkit-slider-runnable-track {
+                            height: 6px;
+                            background: linear-gradient(
+                                var(--range-direction),
+                                #2dd4bf 0 var(--range-progress),
+                                #334155 var(--range-progress) 100%
+                            ) !important;
+                            border: 1px solid #475569;
+                            border-radius: 999px;
+                            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+                        }
+                        html[data-theme="dark"] .controls input[type="range"]::-webkit-slider-thumb {
+                            -webkit-appearance: none !important;
+                            width: 16px;
+                            height: 16px;
+                            margin-top: -5px;
+                            background: #2dd4bf !important;
+                            border: 2px solid #0f172a;
+                            border-radius: 50%;
+                            box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.22), 0 2px 5px rgba(0, 0, 0, 0.45);
+                        }
+                        html[data-theme="dark"] .controls input[type="range"]::-moz-range-track {
+                            height: 6px;
+                            background: #334155 !important;
+                            border: 1px solid #475569;
+                            border-radius: 999px;
+                            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+                        }
+                        html[data-theme="dark"] .controls input[type="range"]::-moz-range-progress {
+                            height: 6px;
+                            background: #2dd4bf !important;
+                            border-radius: 999px;
+                        }
+                        html[data-theme="dark"] .controls input[type="range"]::-moz-range-thumb {
+                            width: 14px;
+                            height: 14px;
+                            background: #2dd4bf !important;
+                            border: 2px solid #0f172a;
+                            border-radius: 50%;
+                            box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.22), 0 2px 5px rgba(0, 0, 0, 0.45);
+                        }
+                        html[data-theme="dark"] .controls input[type="range"]:focus-visible {
+                            outline: 2px solid rgba(45, 212, 191, 0.55) !important;
+                            outline-offset: 4px;
                         }
                     </style>`;
                     documentSource = documentSource.replace('</head>', `${pdiskSideStripes}</head>`);
@@ -736,6 +1009,7 @@
 
         viewer.addEventListener('load', () => {
             syncViewerTheme();
+            syncPdiskRangeProgress();
             window.requestAnimationFrame(() => frameHost.classList.remove('is-switching'));
         });
 
