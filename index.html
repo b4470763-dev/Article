@@ -186,6 +186,45 @@
 
             html[data-theme-transition="to-light"]::view-transition-old(root) { z-index: 2; }
             html[data-theme-transition="to-light"]::view-transition-new(root) { z-index: 1; }
+
+            html[data-theme-transition="to-dark"]::view-transition-new(root) {
+                animation: themeRevealDark 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+                will-change: clip-path;
+            }
+
+            html[data-theme-transition="to-light"]::view-transition-old(root) {
+                animation: themeRevealLight 660ms cubic-bezier(0.4, 0, 0.2, 1) both;
+                will-change: clip-path;
+            }
+
+            @keyframes themeRevealDark {
+                from {
+                    clip-path: circle(0px at var(--theme-origin-x) var(--theme-origin-y));
+                }
+                to {
+                    clip-path: circle(var(--theme-end-radius) at var(--theme-origin-x) var(--theme-origin-y));
+                }
+            }
+
+            @keyframes themeRevealLight {
+                from {
+                    clip-path: circle(var(--theme-end-radius) at var(--theme-origin-x) var(--theme-origin-y));
+                }
+                to {
+                    clip-path: circle(0px at var(--theme-origin-x) var(--theme-origin-y));
+                }
+            }
+
+            @media (max-width: 820px) {
+                html[data-theme-transition="to-dark"]::view-transition-new(root) {
+                    animation-duration: 540ms;
+                    animation-timing-function: cubic-bezier(0.2, 0.72, 0.25, 1);
+                }
+                html[data-theme-transition="to-light"]::view-transition-old(root) {
+                    animation-duration: 500ms;
+                    animation-timing-function: cubic-bezier(0.32, 0, 0.2, 1);
+                }
+            }
         }
 
         
@@ -731,32 +770,21 @@
                 Math.max(originY, window.innerHeight - originY)
             );
 
+            document.documentElement.style.setProperty('--theme-origin-x', `${originX}px`);
+            document.documentElement.style.setProperty('--theme-origin-y', `${originY}px`);
+            document.documentElement.style.setProperty('--theme-end-radius', `${endRadius}px`);
+
             const transition = document.startViewTransition(() => applyTheme(goingToDark));
 
             try {
-                await transition.ready;
-                const clipPath = goingToDark
-                    ? [`circle(0px at ${originX}px ${originY}px)`, `circle(${endRadius}px at ${originX}px ${originY}px)`]
-                    : [`circle(${endRadius}px at ${originX}px ${originY}px)`, `circle(0px at ${originX}px ${originY}px)`];
-
-                document.documentElement.animate(
-                    { clipPath },
-                    {
-                        duration: goingToDark ? 760 : 680,
-                        easing: goingToDark
-                            ? 'cubic-bezier(0.22, 1, 0.36, 1)'
-                            : 'cubic-bezier(0.4, 0, 0.2, 1)',
-                        fill: 'both',
-                        pseudoElement: goingToDark
-                            ? '::view-transition-new(root)'
-                            : '::view-transition-old(root)'
-                    }
-                );
                 await transition.finished;
             } catch (error) {
                 // If the browser cancels a snapshot, the selected theme still remains applied.
             } finally {
                 document.documentElement.removeAttribute('data-theme-transition');
+                document.documentElement.style.removeProperty('--theme-origin-x');
+                document.documentElement.style.removeProperty('--theme-origin-y');
+                document.documentElement.style.removeProperty('--theme-end-radius');
                 themeTransitionRunning = false;
             }
         });
