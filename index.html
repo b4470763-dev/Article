@@ -263,7 +263,10 @@
             pointer-events: none;
             border-radius: 50%;
             opacity: 1;
-            background: linear-gradient(132deg, #0b1120 0%, #0f172a 48%, #020617 100%);
+            /* Invert the pixels underneath instead of painting over them. This
+               keeps text, canvases and tool controls visible during the wipe. */
+            background: #fff;
+            mix-blend-mode: difference;
             transform: translate3d(-50%, -50%, 0) scale(0);
             transform-origin: center;
             backface-visibility: hidden;
@@ -281,11 +284,6 @@
 
         .theme-wipe[data-motion="contract"].is-animating {
             animation: mobileThemeWipeContract 400ms cubic-bezier(0.32, 0, 0.2, 1) both;
-        }
-
-        html[data-mobile-theme-transition] .theme-wipe.is-fading {
-            opacity: 0;
-            transition: opacity 80ms linear !important;
         }
 
         @keyframes mobileThemeWipeExpand {
@@ -886,12 +884,14 @@
             try {
                 if (goingToDark) {
                     await waitForMotion(wipe, 'animationend', 520);
+                    // Replace the temporary visible inversion with the exact
+                    // dark palette before the browser paints another frame.
                     applyTheme(true);
-                    await waitForPaint(2);
-                    wipe.classList.add('is-fading');
-                    await waitForMotion(wipe, 'transitionend', 160);
+                    wipe.remove();
                 } else {
-                    await waitForPaint();
+                    // Prepare the real light palette under the full-size wipe.
+                    // Its inversion still looks dark, while the contracting
+                    // edge reveals the light content without hiding anything.
                     applyTheme(false);
                     await waitForPaint(2);
                     wipe.classList.add('is-animating');
