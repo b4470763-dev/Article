@@ -263,9 +263,13 @@
             pointer-events: none;
             border-radius: 50%;
             opacity: 1;
-            /* Invert the pixels underneath instead of painting over them. This
-               keeps text, canvases and tool controls visible during the wipe. */
-            background: #fff;
+            /* Each stop is calibrated against the light page gradient so the
+               blended result lands on the real dark navy gradient, rather
+               than the brown-tinted near-black produced by plain white. */
+            background:
+                linear-gradient(132deg, #dae3d0 0%, #e8ddc0 48%, #e7e9e4 100%)
+                var(--theme-wipe-offset-x) var(--theme-wipe-offset-y) /
+                100vw 100vh no-repeat;
             mix-blend-mode: difference;
             transform: translate3d(-50%, -50%, 0) scale(0);
             transform-origin: center;
@@ -875,6 +879,8 @@
             root.style.setProperty('--theme-origin-y', `${originY}px`);
             root.style.setProperty('--theme-end-radius', `${endRadius + 2}px`);
             root.style.setProperty('--theme-wipe-size', `${(endRadius + 2) * 2}px`);
+            root.style.setProperty('--theme-wipe-offset-x', `${endRadius + 2 - originX}px`);
+            root.style.setProperty('--theme-wipe-offset-y', `${endRadius + 2 - originY}px`);
 
             wipe.className = 'theme-wipe';
             wipe.setAttribute('aria-hidden', 'true');
@@ -961,6 +967,8 @@
                 document.documentElement.style.removeProperty('--theme-origin-y');
                 document.documentElement.style.removeProperty('--theme-end-radius');
                 document.documentElement.style.removeProperty('--theme-wipe-size');
+                document.documentElement.style.removeProperty('--theme-wipe-offset-x');
+                document.documentElement.style.removeProperty('--theme-wipe-offset-y');
                 themeTransitionRunning = false;
             }
         });
