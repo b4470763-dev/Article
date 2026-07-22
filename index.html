@@ -235,50 +235,16 @@
             }
         }
 
-        /* Mobile uses a transform-only ripple. The real theme changes once for
-           the whole document, so the header, viewer and controls stay in sync. */
-        .theme-ripple {
-            position: fixed;
-            left: var(--theme-origin-x);
-            top: var(--theme-origin-y);
-            width: var(--theme-ripple-size);
-            height: var(--theme-ripple-size);
-            z-index: 2147483646;
-            pointer-events: none;
-            color: rgba(96, 165, 250, 0.82);
-            border: 3px solid rgba(96, 165, 250, 0.82);
-            border-radius: 50%;
-            box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.16),
-                0 0 28px rgba(59, 130, 246, 0.34),
-                inset 0 0 28px rgba(59, 130, 246, 0.12);
-            transform: translate3d(-50%, -50%, 0) scale(0.001);
-            transform-origin: center;
-            backface-visibility: hidden;
+        /* Keep the mobile capture as one paint-contained scene. Splitting the
+           viewer and header creates visible seams and extra snapshot layers. */
+        html[data-mobile-native-transition] .app {
+            contain: layout paint style;
+        }
+
+        html[data-mobile-native-transition] iframe,
+        html[data-mobile-native-transition] canvas {
             contain: strict;
-            will-change: transform, opacity;
         }
-
-        .theme-ripple[data-direction="to-light"] {
-            color: rgba(251, 191, 36, 0.86);
-            border-color: rgba(251, 191, 36, 0.86);
-            box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.22),
-                0 0 30px rgba(251, 191, 36, 0.32),
-                inset 0 0 28px rgba(251, 191, 36, 0.11);
-        }
-
-        .theme-ripple::before,
-        .theme-ripple::after {
-            content: "";
-            position: absolute;
-            border: 1px solid currentColor;
-            border-radius: inherit;
-            opacity: 0.25;
-        }
-
-        .theme-ripple::before { inset: 7%; }
-        .theme-ripple::after { inset: 14%; opacity: 0.13; }
 
         .theme-switch {
             display: inline-flex;
@@ -801,56 +767,12 @@
             syncViewerTheme();
         }
 
-        async function runMobileThemeRipple(goingToDark, originX, originY, endRadius) {
-            const root = document.documentElement;
-            const ripple = document.createElement('div');
-            const direction = goingToDark ? 'to-dark' : 'to-light';
-
-            root.setAttribute('data-mobile-theme-ripple', direction);
-            root.style.setProperty('--theme-origin-x', `${originX}px`);
-            root.style.setProperty('--theme-origin-y', `${originY}px`);
-            root.style.setProperty('--theme-ripple-size', `${(endRadius + 3) * 2}px`);
-
-            ripple.className = 'theme-ripple';
-            ripple.dataset.direction = direction;
-            ripple.setAttribute('aria-hidden', 'true');
-            document.body.appendChild(ripple);
-
-            // Change the real page and iframe theme only once, as one unit.
-            applyTheme(goingToDark);
-
-            const keyframes = goingToDark
-                ? [
-                    { transform: 'translate3d(-50%, -50%, 0) scale(0.001)', opacity: 0.92 },
-                    { transform: 'translate3d(-50%, -50%, 0) scale(0.72)', opacity: 0.72, offset: 0.72 },
-                    { transform: 'translate3d(-50%, -50%, 0) scale(1)', opacity: 0 }
-                ]
-                : [
-                    { transform: 'translate3d(-50%, -50%, 0) scale(1)', opacity: 0.16 },
-                    { transform: 'translate3d(-50%, -50%, 0) scale(0.12)', opacity: 0.82, offset: 0.82 },
-                    { transform: 'translate3d(-50%, -50%, 0) scale(0.001)', opacity: 0 }
-                ];
-
-            try {
-                const animation = ripple.animate(keyframes, {
-                    duration: goingToDark ? 460 : 440,
-                    easing: goingToDark
-                        ? 'cubic-bezier(0.2, 0.72, 0.25, 1)'
-                        : 'cubic-bezier(0.32, 0, 0.2, 1)',
-                    fill: 'both'
-                });
-                await animation.finished;
-            } finally {
-                ripple.remove();
-                root.removeAttribute('data-mobile-theme-ripple');
-            }
-        }
-
-        async function runViewThemeTransition(goingToDark, originX, originY, endRadius) {
+        async function runViewThemeTransition(goingToDark, originX, originY, endRadius, isMobile) {
             const root = document.documentElement;
             const direction = goingToDark ? 'to-dark' : 'to-light';
 
             root.setAttribute('data-theme-transition', direction);
+            if (isMobile) root.setAttribute('data-mobile-native-transition', '');
             root.style.setProperty('--theme-origin-x', `${originX}px`);
             root.style.setProperty('--theme-origin-y', `${originY}px`);
             root.style.setProperty('--theme-end-radius', `${endRadius + 2}px`);
@@ -882,25 +804,19 @@
             );
 
             try {
-                const useMobileThemeRipple =
+                const useMobileNativeTransition =
                     window.matchMedia('(max-width: 820px)').matches ||
                     window.matchMedia('(pointer: coarse)').matches ||
                     (navigator.maxTouchPoints > 0 &&
                         window.matchMedia('(max-width: 1024px)').matches);
 
-                if (useMobileThemeRipple) {
-                    await runMobileThemeRipple(
-                        goingToDark,
-                        originX,
-                        originY,
-                        endRadius
-                    );
-                } else if (document.startViewTransition) {
+                if (document.startViewTransition) {
                     await runViewThemeTransition(
                         goingToDark,
                         originX,
                         originY,
-                        endRadius
+                        endRadius,
+                        useMobileNativeTransition
                     );
                 } else {
                     applyTheme(goingToDark);
@@ -909,11 +825,10 @@
                 // If the browser cancels a snapshot, the selected theme still remains applied.
             } finally {
                 document.documentElement.removeAttribute('data-theme-transition');
-                document.documentElement.removeAttribute('data-mobile-theme-ripple');
+                document.documentElement.removeAttribute('data-mobile-native-transition');
                 document.documentElement.style.removeProperty('--theme-origin-x');
                 document.documentElement.style.removeProperty('--theme-origin-y');
                 document.documentElement.style.removeProperty('--theme-end-radius');
-                document.documentElement.style.removeProperty('--theme-ripple-size');
                 themeTransitionRunning = false;
             }
         });
